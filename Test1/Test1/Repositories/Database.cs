@@ -44,7 +44,7 @@ public class Database : IDatabase
         return teamMember;
     }
 
-    public async Task<IEnumerable<TaskDTO>> GetTasksByMember(int id)
+    public async Task<Dictionary<string, IEnumerable<TaskDTO>>> GetTasksByMember(int id)
     {
         var con = GetConnection();
         await con.OpenAsync();
@@ -53,23 +53,28 @@ public class Database : IDatabase
                           "FROM [Task] t " +
                           "JOIN TaskType tt on tt.IdTaskType = t.IdTaskType " +
                           "JOIN Project p on p.IdProject = t.IdProject "+
-                          "WHERE t.IdAssignedTO = @IdTeamMember OR t.IdCreator = @IdTeamMember " +
+                          "WHERE t.IdAssignedTo = @IdTeamMember " +
                           "ORDER BY t.Deadline DESC";
         com.Parameters.AddWithValue("@IdTeamMember", id);
-        var tasks = new List<TaskDTO>();
-        await using var reader = await com.ExecuteReaderAsync();
-        while (reader.Read())
+        
+        var assignedTasks = new List<TaskDTO>();
+        await using (var reader = await com.ExecuteReaderAsync())
         {
-            var taskDto = new TaskDTO()
-            {
-                Name = (string)reader["Name"],
-                Description = (string)reader["Description"],
-                Deadline = (DateTime)reader["Deadline"],
-                ProjectName = (string)reader["ProjectName"],
-                Type = (string)reader["TaskType"]
-            };
-            tasks.Add(taskDto);
+            assignedTasks = CreateListOfTasks(reader);
         }
+        
+        com.CommandText = com.CommandText.Replace("IdAssignedTo", "IdCreator");
+        var createdTasks = new List<TaskDTO>();
+        await using (var reader = await com.ExecuteReaderAsync())
+        {
+            createdTasks = CreateListOfTasks(reader);
+        }
+        
+        var tasks = new Dictionary<string, IEnumerable<TaskDTO>>
+        {
+            ["Assigned tasks"] = assignedTasks,
+            ["Created tasks"] = createdTasks
+        };
 
         return tasks;
     }
@@ -102,5 +107,24 @@ public class Database : IDatabase
         com.Parameters.AddWithValue("@IdProject", id);
         await using var reader = await com.ExecuteReaderAsync();
         return reader.HasRows;
+    }
+
+    private List<TaskDTO> CreateListOfTasks(SqlDataReader reader)
+    {
+        var tasks = new List<TaskDTO>();
+        while (reader.Read())
+        {
+            var taskDto = new TaskDTO()
+            {
+                Name = (string)reader["Name"],
+                Description = (string)reader["Description"],
+                Deadline = (DateTime)reader["Deadline"],
+                ProjectName = (string)reader["ProjectName"],
+                Type = (string)reader["TaskType"]
+            };
+            tasks.Add(taskDto);
+        }
+
+        return tasks;
     }
 }
